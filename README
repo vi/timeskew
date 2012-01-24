@@ -1,0 +1,4 @@
+(Early version)
+1. Edit numerator and denominator in source
+2. Build: "make"
+3. Use: LD_PRELOAD=./libtimeskew.so something
