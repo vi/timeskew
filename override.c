@@ -20,10 +20,41 @@ struct tiacc {
 
 static struct tiacc accumulators[2] = {{0,0}, {0,0}};
 
-static int num = 2;
+static int num = 1;
 static int denom = 1;
 
+#define MAINT_PERIOD 1024
+static int maint_counter=0;
+
+static void maint() {
+    if (maint_counter==0) {
+        if(getenv("TIMESKEW")) {
+            sscanf(getenv("TIMESKEW"), "%i%i", &num, &denom);
+        }
+    }
+    ++maint_counter;
+    if(maint_counter==MAINT_PERIOD) {
+        maint_counter=1;
+    } else return;
+
+
+    FILE* f=fopen("timeskew", "r");
+    if(f) {
+        fscanf(f, "%i%i", &num, &denom);
+        fclose(f);
+    } else {
+        if(!getenv("TIMESKEW")) {
+            fprintf(stderr, "Usage: LD_PRELOAD=./libtimeskew.so program\n"
+                    "    use 'timeskew' file in current directory or\n"
+                    "    TIMESKEW environment variable with the following content:\n"
+                    "    \"numerator demoninator\" - two numbers separated by space\n"
+                    "    File will be reread to readjust time skew.\n");
+        }
+    }
+}
+
 static long long int filter_time(long long int nanos, struct tiacc* acc) {
+    maint();
     int delta = nanos - acc->lastsysval;
     acc->lastsysval = nanos;
 
