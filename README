@@ -1,4 +1,4 @@
 (Early version)
-1. Edit numerator and denominator in source
-2. Build: "make"
-3. Use: LD_PRELOAD=./libtimeskew.so something
+1. "make" will provide libtimeskew.so
+2. Use `TIMESKEW="2 1" LD_PRELOAD=./libtimeskew.so program` to start program with time 2x faster than usual
+3. Create/update "timeskew" file in current directory to update time coefficient, e.g. `echo 1 3 > timeskew` - slow down 3x.
