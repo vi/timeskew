@@ -2,3 +2,5 @@
 1. "make" will provide libtimeskew.so
 2. Use `TIMESKEW="2 1" LD_PRELOAD=./libtimeskew.so program` to start program with time 2x faster than usual
 3. Create/update "timeskew" file in current directory to update time coefficient, e.g. `echo 1 3 > timeskew` - slow down 3x.
+
+TIMESHIFT also sets constant time shift

@@ -18,6 +18,7 @@ static int (*orig_pselect) (int nfds, fd_set *readfds, fd_set *writefds,
                    const sigset_t *sigmask) = NULL;
 
 static struct timespec timebase_monotonic;
+static struct timespec timebase_realtime;
 static struct timeval timebase_gettimeofday;
 
 struct tiacc {
@@ -29,6 +30,7 @@ static struct tiacc accumulators[2] = {{0,0}, {0,0}};
 
 static int num = 1;
 static int denom = 1;
+static long long int shift = 0;
 
 #define MAINT_PERIOD 1024
 static int maint_counter=0;
@@ -37,6 +39,9 @@ static void maint() {
     if (maint_counter==0) {
         if(getenv("TIMESKEW")) {
             sscanf(getenv("TIMESKEW"), "%i%i", &num, &denom);
+        }
+        if(getenv("TIMESHIFT")) {
+            sscanf(getenv("TIMESHIFT"), "%i", &shift);
         }
     }
     ++maint_counter;
@@ -74,6 +79,7 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
     if(!orig_clock_gettime) {
         orig_clock_gettime = dlsym(RTLD_NEXT, "clock_gettime");
         orig_clock_gettime(CLOCK_MONOTONIC, &timebase_monotonic);
+        orig_clock_gettime(CLOCK_REALTIME , &timebase_realtime);
     }
     int ret = orig_clock_gettime(clk_id, tp);
 
@@ -84,8 +90,21 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
 
         q = filter_time(q, accumulators+0);
 
-        tp->tv_sec = (q/1000000000)+timebase_monotonic.tv_sec;
+        tp->tv_sec = (q/1000000000)+timebase_monotonic.tv_sec + shift;
         tp->tv_nsec = q%1000000000+timebase_monotonic.tv_nsec;
+        if (tp->tv_nsec >= 1000000000) {
+            tp->tv_nsec-=1000000000;
+            tp->tv_sec+=1;
+        }
+    }else
+    if (clk_id == CLOCK_REALTIME) {
+        long long q = 1000000000LL*(tp->tv_sec - timebase_realtime.tv_sec)
+            + (tp->tv_nsec - timebase_realtime.tv_nsec);
+
+        q = filter_time(q, accumulators+0);
+
+        tp->tv_sec = (q/1000000000)+timebase_realtime.tv_sec + shift;
+        tp->tv_nsec = q%1000000000+timebase_realtime.tv_nsec;
         if (tp->tv_nsec >= 1000000000) {
             tp->tv_nsec-=1000000000;
             tp->tv_sec+=1;
@@ -98,7 +117,13 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
 int gettimeofday(struct timeval *tv, struct timezone *tz) {
     if(!orig_gettimeofday) {
         orig_gettimeofday = dlsym(RTLD_NEXT, "gettimeofday");
-        gettimeofday(&timebase_gettimeofday, NULL);
+        if(getenv("TIMEBASE")) {
+            long int q=atoi(getenv("TIMEBASE"));
+            timebase_gettimeofday.tv_sec = q;
+            timebase_gettimeofday.tv_usec = 0;
+        } else {
+            gettimeofday(&timebase_gettimeofday, NULL);
+        }
     }
     int ret = orig_gettimeofday(tv, tz);
     
@@ -107,7 +132,7 @@ int gettimeofday(struct timeval *tv, struct timezone *tz) {
 
     q = filter_time(q*1000LL, accumulators+1)/1000;
 
-    tv->tv_sec = (q/1000000)+timebase_gettimeofday.tv_sec;
+    tv->tv_sec = (q/1000000)+timebase_gettimeofday.tv_sec + shift;
     tv->tv_usec = q%1000000+timebase_gettimeofday.tv_usec;
     if (tv->tv_usec >= 1000000) {
         tv->tv_usec-=1000000;
