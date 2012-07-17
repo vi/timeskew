@@ -5,11 +5,18 @@
 #include <sys/types.h>
 #include <dlfcn.h>
 #include <sys/time.h>
+#include <sys/select.h>
 #include <time.h>
 
 static int (*orig_clock_gettime)(clockid_t, struct timespec*) = NULL;
 static int (*orig_nanosleep)(struct timespec*, struct timespec*) = NULL;
 static int (*orig_gettimeofday)(struct timeval*, struct timezone*) = NULL;
+static int (*orig_select)(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout) = NULL;
+static int (*orig_pselect) (int nfds, fd_set *readfds, fd_set *writefds,
+                   fd_set *exceptfds, const struct timespec *timeout,
+                   const sigset_t *sigmask) = NULL;
+
 static struct timespec timebase_monotonic;
 static struct timeval timebase_gettimeofday;
 
@@ -55,7 +62,7 @@ static void maint() {
 
 static long long int filter_time(long long int nanos, struct tiacc* acc) {
     maint();
-    int delta = nanos - acc->lastsysval;
+    long long int delta = nanos - acc->lastsysval;
     acc->lastsysval = nanos;
 
     delta = delta * num / denom;
@@ -111,6 +118,7 @@ int gettimeofday(struct timeval *tv, struct timezone *tz) {
 }
 
 int nanosleep(const struct timespec *req, struct timespec *rem) {
+    maint();
     if(!orig_nanosleep) { 
         orig_nanosleep = dlsym(RTLD_NEXT, "nanosleep");
     }
@@ -137,3 +145,63 @@ int nanosleep(const struct timespec *req, struct timespec *rem) {
 
     return ret;
 }
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout) {
+    maint();
+    if(!orig_select) { 
+        orig_select = dlsym(RTLD_NEXT, "select");
+    }
+
+    struct timeval ts;
+    struct timeval *tsptr = NULL;
+
+    if (timeout) {
+        long long q = 1000000LL*(timeout->tv_sec) + timeout->tv_usec;
+
+        q = q * denom / num;
+
+        ts.tv_sec = (q/1000000);
+        ts.tv_usec = q%1000000;
+        tsptr = &ts;
+    }
+
+    int ret = orig_select(nfds, readfds, writefds, exceptfds, tsptr);
+
+
+    if (timeout) {
+        long long q = 1000000LL*(tsptr->tv_sec) + tsptr->tv_usec;
+
+        q = q * num / denom;
+
+        timeout->tv_sec = (q/1000000);
+        timeout->tv_usec = q%1000000;
+    }
+
+    return ret;
+}
+int pselect(int nfds, fd_set *readfds, fd_set *writefds,
+        fd_set *exceptfds, const struct timespec *timeout,
+        const sigset_t *sigmask) {
+    maint();
+    if(!orig_pselect) {
+        orig_pselect = dlsym(RTLD_NEXT, "pselect");
+    }
+
+    struct timespec ts;
+    struct timespec *tsptr = NULL;
+
+    if (timeout) {
+        long long q = 1000000000LL*(timeout->tv_sec) + timeout->tv_nsec;
+
+        q = q * denom / num;
+
+        ts.tv_sec = (q/1000000000);
+        ts.tv_nsec = q%1000000000;
+        tsptr = &ts;
+    }
+
+    int ret = orig_pselect(nfds, readfds, writefds, exceptfds, tsptr, sigmask);
+    return ret;
+}
+
