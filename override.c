@@ -26,7 +26,7 @@ struct tiacc {
     long long int lastourval;
 };
 
-static struct tiacc accumulators[2] = {{0,0}, {0,0}};
+static struct tiacc accumulators[3] = {{0,0}, {0,0}, {0,0}};
 
 static int num = 1;
 static int denom = 1;
@@ -78,8 +78,8 @@ static long long int filter_time(long long int nanos, struct tiacc* acc) {
 int clock_gettime(clockid_t clk_id, struct timespec *tp) {
     if(!orig_clock_gettime) {
         orig_clock_gettime = dlsym(RTLD_NEXT, "clock_gettime");
-        orig_clock_gettime(CLOCK_MONOTONIC, &timebase_monotonic);
-        orig_clock_gettime(CLOCK_REALTIME , &timebase_realtime);
+        (*orig_clock_gettime)(CLOCK_MONOTONIC, &timebase_monotonic);
+        (*orig_clock_gettime)(CLOCK_REALTIME , &timebase_realtime);
     }
     int ret = orig_clock_gettime(clk_id, tp);
 
@@ -101,7 +101,7 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
         long long q = 1000000000LL*(tp->tv_sec - timebase_realtime.tv_sec)
             + (tp->tv_nsec - timebase_realtime.tv_nsec);
 
-        q = filter_time(q, accumulators+0);
+        q = filter_time(q, accumulators+2);
 
         tp->tv_sec = (q/1000000000)+timebase_realtime.tv_sec + shift;
         tp->tv_nsec = q%1000000000+timebase_realtime.tv_nsec;
@@ -117,17 +117,11 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
 int gettimeofday(struct timeval *tv, struct timezone *tz) {
     if(!orig_gettimeofday) {
         orig_gettimeofday = dlsym(RTLD_NEXT, "gettimeofday");
-        if(getenv("TIMEBASE")) {
-            long int q=atoi(getenv("TIMEBASE"));
-            timebase_gettimeofday.tv_sec = q;
-            timebase_gettimeofday.tv_usec = 0;
-        } else {
-            gettimeofday(&timebase_gettimeofday, NULL);
-        }
+        (*orig_gettimeofday)(&timebase_gettimeofday, NULL);
     }
     int ret = orig_gettimeofday(tv, tz);
     
-    long long q = 1000000LL*(tv->tv_sec-timebase_gettimeofday.tv_sec)
+    long long q = 1000000LL * (tv->tv_sec - timebase_gettimeofday.tv_sec)
         + (tv->tv_usec - timebase_gettimeofday.tv_usec);
 
     q = filter_time(q*1000LL, accumulators+1)/1000;
