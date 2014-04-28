@@ -97,7 +97,7 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
             tp->tv_sec+=1;
         }
     }else
-    if (clk_id == CLOCK_REALTIME) {
+    { // if (clk_id == CLOCK_REALTIME) {
         long long q = 1000000000LL*(tp->tv_sec - timebase_realtime.tv_sec)
             + (tp->tv_nsec - timebase_realtime.tv_nsec);
 
