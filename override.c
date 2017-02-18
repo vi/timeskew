@@ -45,9 +45,11 @@ static void maint() {
         }
     }
     ++maint_counter;
-    if(maint_counter==MAINT_PERIOD) {
+    if(maint_counter>=MAINT_PERIOD) {
         maint_counter=1;
-    } else return;
+    } else {
+        return;
+    }
 
 
     FILE* f=fopen("timeskew", "r");
