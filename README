@@ -6,3 +6,6 @@
 TIMESHIFT also sets constant time shift
 
 License=MIT or (at your option) GPLv3
+
+See also:
+* Forked timeskew with a GUI (not tested myself): https://github.com/id01/timeskew
