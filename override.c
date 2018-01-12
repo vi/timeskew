@@ -41,7 +41,7 @@ static void maint() {
             sscanf(getenv("TIMESKEW"), "%i%i", &num, &denom);
         }
         if(getenv("TIMESHIFT")) {
-            sscanf(getenv("TIMESHIFT"), "%i", &shift);
+            sscanf(getenv("TIMESHIFT"), "%lli", &shift);
         }
     }
     ++maint_counter;
