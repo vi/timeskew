@@ -116,7 +116,7 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
     return ret;
 }
 
-int gettimeofday(struct timeval *tv, struct timezone *tz) {
+int gettimeofday(struct timeval *tv, void*tz) {
     if(!orig_gettimeofday) {
         orig_gettimeofday = dlsym(RTLD_NEXT, "gettimeofday");
         (*orig_gettimeofday)(&timebase_gettimeofday, NULL);
