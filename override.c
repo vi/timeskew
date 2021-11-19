@@ -6,6 +6,8 @@
 #include <dlfcn.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#include <string.h>
+#include <pthread.h>
 #include <time.h>
 
 static int (*orig_clock_gettime)(clockid_t, struct timespec*) = NULL;
@@ -35,6 +37,10 @@ static long long int shift = 0;
 static int maint_period=-2;
 static int maint_counter=0;
 
+static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static char* filename = NULL;
+
 static void maint() {
     if (maint_counter==0) {
         if(getenv("TIMESKEW")) {
@@ -60,8 +66,17 @@ static void maint() {
         return;
     }
 
+    if (filename == NULL) {
+        if (getenv("TIMESKEW_FILE")) {
+            // memory never freed
+            filename = strdup(getenv("TIMESKEW_FILE"));
+        } else {
+            filename = "timeskew";
+        }
+    }
 
-    FILE* f=fopen("timeskew", "r");
+
+    FILE* f=fopen(filename, "r");
     if(f) {
         fscanf(f, "%i%i", &num, &denom);
         fclose(f);
@@ -83,10 +98,19 @@ static long long int filter_time(long long int nanos, struct tiacc* acc) {
 
     delta = delta * num / denom;
     acc->lastourval+=delta;
+    
+    /*
+    FILE* l = fopen("/tmp/timeskew.log", "at");
+    if (l) {
+       fprintf(l, "%lld,%lld\n", nanos, acc->lastourval);
+       fclose(l);
+    }
+    */
     return acc->lastourval;
 }
 
 int clock_gettime(clockid_t clk_id, struct timespec *tp) {
+    pthread_mutex_lock(&global_mutex);
     if(!orig_clock_gettime) {
         orig_clock_gettime = dlsym(RTLD_NEXT, "clock_gettime");
         (*orig_clock_gettime)(CLOCK_MONOTONIC, &timebase_monotonic);
@@ -122,10 +146,12 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
         }
     }
 
+    pthread_mutex_unlock(&global_mutex);
     return ret;
 }
 
 int gettimeofday(struct timeval *tv, void*tz) {
+    pthread_mutex_lock(&global_mutex);
     if(!orig_gettimeofday) {
         orig_gettimeofday = dlsym(RTLD_NEXT, "gettimeofday");
         (*orig_gettimeofday)(&timebase_gettimeofday, NULL);
@@ -144,10 +170,12 @@ int gettimeofday(struct timeval *tv, void*tz) {
         tv->tv_sec+=1;
     }
 
+    pthread_mutex_unlock(&global_mutex);
     return ret;
 }
 
 int nanosleep(const struct timespec *req, struct timespec *rem) {
+    pthread_mutex_lock(&global_mutex);
     maint();
     if(!orig_nanosleep) { 
         orig_nanosleep = dlsym(RTLD_NEXT, "nanosleep");
@@ -173,11 +201,13 @@ int nanosleep(const struct timespec *req, struct timespec *rem) {
 
     }          
 
+    pthread_mutex_unlock(&global_mutex);
     return ret;
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, struct timeval *timeout) {
+    pthread_mutex_lock(&global_mutex);
     maint();
     if(!orig_select) { 
         orig_select = dlsym(RTLD_NEXT, "select");
@@ -196,6 +226,7 @@ int select(int nfds, fd_set *readfds, fd_set *writefds,
         tsptr = &ts;
     }
 
+    pthread_mutex_unlock(&global_mutex);
     int ret = orig_select(nfds, readfds, writefds, exceptfds, tsptr);
 
 
@@ -213,6 +244,7 @@ int select(int nfds, fd_set *readfds, fd_set *writefds,
 int pselect(int nfds, fd_set *readfds, fd_set *writefds,
         fd_set *exceptfds, const struct timespec *timeout,
         const sigset_t *sigmask) {
+    pthread_mutex_lock(&global_mutex);
     maint();
     if(!orig_pselect) {
         orig_pselect = dlsym(RTLD_NEXT, "pselect");
@@ -231,6 +263,7 @@ int pselect(int nfds, fd_set *readfds, fd_set *writefds,
         tsptr = &ts;
     }
 
+    pthread_mutex_unlock(&global_mutex);
     int ret = orig_pselect(nfds, readfds, writefds, exceptfds, tsptr, sigmask);
     return ret;
 }
