@@ -32,7 +32,7 @@ static int num = 1;
 static int denom = 1;
 static long long int shift = 0;
 
-#define MAINT_PERIOD 1024
+static int maint_period=-2;
 static int maint_counter=0;
 
 static void maint() {
@@ -44,8 +44,17 @@ static void maint() {
             sscanf(getenv("TIMESHIFT"), "%lli", &shift);
         }
     }
+
+    if (maint_period == -2) {
+        if(getenv("MAINT_PERIOD")) {
+            maint_period = atoi(getenv("MAINT_PERIOD"));
+        } else {
+            maint_period = 1024;
+        }
+    }
+
     ++maint_counter;
-    if(maint_counter>=MAINT_PERIOD) {
+    if(maint_period>=0 && maint_counter>=maint_period) {
         maint_counter=1;
     } else {
         return;
