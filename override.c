@@ -28,11 +28,19 @@ struct tiacc {
     long long int lastourval;
 };
 
-static struct tiacc accumulators[3] = {{0,0}, {0,0}, {0,0}};
+#ifndef MAXCLOCKS
+#define MAXCLOCKS 16
+#endif  // MAXCLOCKS
+
+static struct tiacc accumulators[MAXCLOCKS] = {{0,0}, {0,0}, {0,0}};
 
 static int num = 1;
 static int denom = 1;
 static long long int shift = 0;
+
+static int old_num = 1;
+static int old_denom = 1;
+static int ramp=0;
 
 static int maint_period=-2;
 static int maint_counter=0;
@@ -42,9 +50,18 @@ static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char* filename = NULL;
 
 static void maint() {
+    if (ramp > 0) {
+        ramp -= 1;
+        if (ramp == 0) {
+            old_denom = denom;
+            old_num = num;
+        }
+    }
     if (maint_counter==0) {
         if(getenv("TIMESKEW")) {
             sscanf(getenv("TIMESKEW"), "%i%i", &num, &denom);
+            old_num = num;
+            old_denom = old_denom;
         }
         if(getenv("TIMESHIFT")) {
             sscanf(getenv("TIMESHIFT"), "%lli", &shift);
@@ -79,6 +96,9 @@ static void maint() {
     FILE* f=fopen(filename, "r");
     if(f) {
         fscanf(f, "%i%i", &num, &denom);
+        if (ramp == 0 && num != old_num || denom != old_denom) {
+            ramp = 20;
+        }
         fclose(f);
     } else {
         if(!getenv("TIMESKEW")) {
@@ -96,16 +116,29 @@ static long long int filter_time(long long int nanos, struct tiacc* acc) {
     long long int delta = nanos - acc->lastsysval;
     acc->lastsysval = nanos;
 
-    delta = delta * num / denom;
+    if (delta > 1000000000000 || delta < -1000000000000) {
+       acc->lastourval = acc->lastsysval;
+       return acc->lastourval;
+    }
+
+    FILE* l = NULL; // fopen("/tmp/timeskew.log", "at");
+    if (l) {
+       fprintf(l, "%lld", delta);
+    }
+
+    if (ramp == 0) {
+        delta = delta * num / denom;
+    } else {
+        delta = (20-ramp) * delta * num / denom + ramp * delta * old_num / old_denom;
+        delta /= 20;
+    }
+
     acc->lastourval+=delta;
     
-    /*
-    FILE* l = fopen("/tmp/timeskew.log", "at");
     if (l) {
-       fprintf(l, "%lld,%lld\n", nanos, acc->lastourval);
+       fprintf(l, ",%d,%lld\n", ramp, delta);
        fclose(l);
     }
-    */
     return acc->lastourval;
 }
 
@@ -119,31 +152,18 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp) {
     int ret = orig_clock_gettime(clk_id, tp);
 
 
-    if (clk_id == CLOCK_MONOTONIC) {
-        long long q = 1000000000LL*(tp->tv_sec - timebase_monotonic.tv_sec)
-            + (tp->tv_nsec - timebase_monotonic.tv_nsec);
+    long long q = 1000000000LL*(tp->tv_sec - timebase_monotonic.tv_sec)
+        + (tp->tv_nsec - timebase_monotonic.tv_nsec);
 
-        q = filter_time(q, accumulators+0);
+    if (clk_id < MAXCLOCKS) {
+        q = filter_time(q, accumulators+clk_id);
+    }
 
-        tp->tv_sec = (q/1000000000)+timebase_monotonic.tv_sec + shift;
-        tp->tv_nsec = q%1000000000+timebase_monotonic.tv_nsec;
-        if (tp->tv_nsec >= 1000000000) {
-            tp->tv_nsec-=1000000000;
-            tp->tv_sec+=1;
-        }
-    }else
-    { // if (clk_id == CLOCK_REALTIME) {
-        long long q = 1000000000LL*(tp->tv_sec - timebase_realtime.tv_sec)
-            + (tp->tv_nsec - timebase_realtime.tv_nsec);
-
-        q = filter_time(q, accumulators+2);
-
-        tp->tv_sec = (q/1000000000)+timebase_realtime.tv_sec + shift;
-        tp->tv_nsec = q%1000000000+timebase_realtime.tv_nsec;
-        if (tp->tv_nsec >= 1000000000) {
-            tp->tv_nsec-=1000000000;
-            tp->tv_sec+=1;
-        }
+    tp->tv_sec = (q/1000000000)+timebase_monotonic.tv_sec + shift;
+    tp->tv_nsec = q%1000000000+timebase_monotonic.tv_nsec;
+    if (tp->tv_nsec >= 1000000000) {
+        tp->tv_nsec-=1000000000;
+        tp->tv_sec+=1;
     }
 
     pthread_mutex_unlock(&global_mutex);
